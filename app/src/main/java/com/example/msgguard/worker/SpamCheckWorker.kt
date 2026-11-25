@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.example.msgguard.domain.usecase.IdentifySpamUseCase
+import com.example.msgguard.domain.usecase.SmsMessage
 import com.example.msgguard.data.repository.SmsRepositoryImpl
 
 class SpamCheckWorker(
@@ -14,7 +15,7 @@ class SpamCheckWorker(
     override suspend fun doWork(): Result {
         val content = inputData.getString("message_content") ?: return Result.success()
 
-        val repository = SmsRepositoryImpl()
+        val repository = SmsRepositoryImpl(applicationContext)
         val useCase = IdentifySpamUseCase(repository)
 
         val result = useCase.execute(SmsMessage(

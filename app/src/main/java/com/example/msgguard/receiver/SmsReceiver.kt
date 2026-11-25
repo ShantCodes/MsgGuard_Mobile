@@ -3,6 +3,7 @@ package com.example.msgguard.receiver
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.provider.Telephony
 import androidx.work.Data
 import androidx.work.OneTimeWorkRequest
 import androidx.work.WorkManager
@@ -11,8 +12,9 @@ import com.example.msgguard.worker.SpamCheckWorker
 class SmsReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == "android.sms.SMS_RECEIVED") {
-            val message = intent.getStringExtra("EXTRA_TEXT")
-            if (message != null) {
+            val message = Telephony.Sms.Intents.getMessagesFromIntent(intent)
+                .joinToString(separator = "") { it.messageBody.orEmpty() }
+            if (message.isNotEmpty()) {
                 val data = Data.Builder()
                     .putString("message_content", message)
                     .build()

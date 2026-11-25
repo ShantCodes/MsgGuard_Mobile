@@ -1,7 +1,5 @@
 package com.example.msgguard.domain.usecase
 
-import com.example.msgguard.domain.model.SpamResult
-import com.example.msgguard.domain.model.SmsMessage
 import com.example.msgguard.domain.repository.SmsRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext

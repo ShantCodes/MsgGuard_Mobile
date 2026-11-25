@@ -6,18 +6,21 @@ import ai.onnxruntime.OrtSession
 import com.example.msgguard.domain.repository.SmsRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.File
+import android.content.Context
 
 /**
  * Implementation of SmsRepository using ONNX Runtime.
  */
-class SmsRepositoryImpl : SmsRepository {
+class SmsRepositoryImpl(context: Context) : SmsRepository {
     private val env: OrtEnvironment = OrtEnvironment.getEnvironment()
+    private val applicationContext = context.applicationContext
 
     // Initialize the session lazily to avoid blocking the main thread during application startup
     private val session: OrtSession? by lazy {
         try {
-            OrtSession.createForFile(File("app/src/main/assets/sms_model.onnx"), env)
+            applicationContext.assets.open("sms_model.onnx").use { model ->
+                env.createSession(model.readBytes())
+            }
         } catch (e: Exception) {
             println("Failed to initialize ONNX session: ${e.message}")
             null
@@ -31,26 +34,27 @@ class SmsRepositoryImpl : SmsRepository {
         val inputNames = currentSession.inputNames
         if (inputNames.isEmpty()) return@withContext false
 
-        val inputName = inputNames[0]
+        val inputName = inputNames.first()
         val shape = longArrayOf(1, 1)
 
         // Create the input tensor for String data
-        val inputTensor = OnnxTensor.createTensor(env, inputName, shape, arrayOf(content))
+        val inputTensor = OnnxTensor.createTensor(env, arrayOf(content), shape)
 
         return@withContext try {
             val results = currentSession.run(mapOf(inputName to inputTensor))
-            val output = results[0]
-            val outputData = output.value as FloatArray
+            try {
+                val outputLabels = results[0].value as LongArray
 
-            // Close the resources
-            inputTensor.close()
-            results.close()
-
-            // Return true if any probability in the output exceeds the 0.5 threshold
-            outputData.any { it > 0.5f }
+                // The training labels use 1 for spam.
+                outputLabels.firstOrNull() == 1L
+            } finally {
+                results.close()
+            }
         } catch (e: Exception) {
             println("Error during inference: ${e.message}")
             false
+        } finally {
+            inputTensor.close()
         }
     }
 
