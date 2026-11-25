@@ -5,7 +5,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * Use case to identify if a message is spam and handle it accordingly.
+ * Use case to classify a received message.
  */
 class IdentifySpamUseCase(
     private val smsRepository: SmsRepository
@@ -14,13 +14,12 @@ class IdentifySpamUseCase(
         // This will call the ML model to determine if the message is spam
         val isSpam = smsRepository.isSpam(message.content)
 
-        if (isSpam) {
-            // Mark as spam/delete
-            smsRepository.markAsSpam(message.id)
-            return@withContext Result.success(SpamResult(isSpam = true, actionTaken = "Moved to Spam"))
-        }
-
-        Result.success(SpamResult(isSpam = false, actionTaken = "None"))
+        Result.success(
+            SpamResult(
+                isSpam = isSpam,
+                actionTaken = if (isSpam) "Classified as advertisement" else "Classified as other"
+            )
+        )
     }
 }
 

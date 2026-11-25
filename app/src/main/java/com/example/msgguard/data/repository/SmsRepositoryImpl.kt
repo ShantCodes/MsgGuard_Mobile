@@ -57,8 +57,4 @@ class SmsRepositoryImpl(context: Context) : SmsRepository {
             inputTensor.close()
         }
     }
-
-    override suspend fun markAsSpam(messageId: String) = withContext(Dispatchers.IO) {
-        println("Marking message $messageId as spam")
-    }
 }

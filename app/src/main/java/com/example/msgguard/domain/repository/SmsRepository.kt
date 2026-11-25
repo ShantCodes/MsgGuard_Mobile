@@ -5,5 +5,4 @@ package com.example.msgguard.domain.repository
  */
 interface SmsRepository {
     suspend fun isSpam(content: String): Boolean
-    suspend fun markAsSpam(messageId: String)
 }

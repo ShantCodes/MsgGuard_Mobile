@@ -12,11 +12,13 @@ import com.example.msgguard.worker.SpamCheckWorker
 class SmsReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == "android.sms.SMS_RECEIVED") {
-            val message = Telephony.Sms.Intents.getMessagesFromIntent(intent)
+            val smsParts = Telephony.Sms.Intents.getMessagesFromIntent(intent)
+            val message = smsParts
                 .joinToString(separator = "") { it.messageBody.orEmpty() }
             if (message.isNotEmpty()) {
                 val data = Data.Builder()
                     .putString("message_content", message)
+                    .putString("message_sender", smsParts.firstOrNull()?.originatingAddress)
                     .build()
 
                 val workRequest = OneTimeWorkRequest.Builder(SpamCheckWorker::class.java)
