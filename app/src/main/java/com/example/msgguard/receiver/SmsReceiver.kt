@@ -11,7 +11,7 @@ import com.example.msgguard.worker.SpamCheckWorker
 
 class SmsReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action == "android.sms.SMS_RECEIVED") {
+        if (intent.action == Telephony.Sms.Intents.SMS_RECEIVED_ACTION) {
             val smsParts = Telephony.Sms.Intents.getMessagesFromIntent(intent)
             val message = smsParts
                 .joinToString(separator = "") { it.messageBody.orEmpty() }
