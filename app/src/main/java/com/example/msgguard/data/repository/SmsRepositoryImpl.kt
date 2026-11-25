@@ -37,8 +37,8 @@ class SmsRepositoryImpl(context: Context) : SmsRepository {
             try {
                 val outputLabels = results[0].value as LongArray
 
-                // The training labels use 1 for spam.
-                outputLabels.firstOrNull() == 1L
+                // Training labels: 0 = advertisement, 1 = other.
+                outputLabels.firstOrNull() == 0L
             } finally {
                 results.close()
             }
