@@ -23,7 +23,7 @@ android {
             proguardFiles(getDefaultProguardFile("proguard-android-optimized.txt"), "proguard-rules.txt")
         }
         debug {
-            applicationLabels.add("MsgGuard_Debug")
+            applicationLabel = "MsgGuard_Debug"
         }
     }
 
@@ -37,7 +37,7 @@ android {
     }
 
     buildFeatures {
-        mlSdk = true
+        // No extra features needed for basic ML inference
     }
 }
 
