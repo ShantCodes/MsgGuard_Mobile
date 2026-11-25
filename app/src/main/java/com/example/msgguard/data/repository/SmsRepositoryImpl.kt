@@ -16,23 +16,15 @@ class SmsRepositoryImpl(context: Context) : SmsRepository {
     private val applicationContext = context.applicationContext
 
     // Initialize the session lazily to avoid blocking the main thread during application startup
-    private val session: OrtSession? by lazy {
-        try {
-            applicationContext.assets.open("sms_model.onnx").use { model ->
-                env.createSession(model.readBytes())
-            }
-        } catch (e: Exception) {
-            println("Failed to initialize ONNX session: ${e.message}")
-            null
+    private val session: OrtSession by lazy {
+        applicationContext.assets.open("sms_model.onnx").use { model ->
+            env.createSession(model.readBytes())
         }
     }
 
     override suspend fun isSpam(content: String): Boolean = withContext(Dispatchers.IO) {
-        val currentSession = session
-        if (currentSession == null) return@withContext false
-
-        val inputNames = currentSession.inputNames
-        if (inputNames.isEmpty()) return@withContext false
+        val inputNames = session.inputNames
+        check(inputNames.isNotEmpty()) { "The ONNX model has no input tensor." }
 
         val inputName = inputNames.first()
         val shape = longArrayOf(1, 1)
@@ -41,7 +33,7 @@ class SmsRepositoryImpl(context: Context) : SmsRepository {
         val inputTensor = OnnxTensor.createTensor(env, arrayOf(content), shape)
 
         return@withContext try {
-            val results = currentSession.run(mapOf(inputName to inputTensor))
+            val results = session.run(mapOf(inputName to inputTensor))
             try {
                 val outputLabels = results[0].value as LongArray
 
@@ -50,9 +42,6 @@ class SmsRepositoryImpl(context: Context) : SmsRepository {
             } finally {
                 results.close()
             }
-        } catch (e: Exception) {
-            println("Error during inference: ${e.message}")
-            false
         } finally {
             inputTensor.close()
         }

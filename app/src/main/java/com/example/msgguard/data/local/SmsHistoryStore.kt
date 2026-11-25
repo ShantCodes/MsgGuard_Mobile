@@ -9,7 +9,8 @@ data class StoredSms(
     val id: String,
     val sender: String,
     val content: String,
-    val isAdvertisement: Boolean,
+    val isAdvertisement: Boolean?,
+    val classificationError: String?,
     val receivedAt: Long
 )
 
@@ -20,7 +21,12 @@ class SmsHistoryStore(context: Context) {
         Context.MODE_PRIVATE
     )
 
-    fun save(sender: String, content: String, isAdvertisement: Boolean) {
+    fun save(
+        sender: String,
+        content: String,
+        isAdvertisement: Boolean?,
+        classificationError: String? = null
+    ) {
         val messages = load().toMutableList()
         messages.add(
             0,
@@ -29,6 +35,7 @@ class SmsHistoryStore(context: Context) {
                 sender = sender.ifBlank { "Unknown sender" },
                 content = content,
                 isAdvertisement = isAdvertisement,
+                classificationError = classificationError,
                 receivedAt = System.currentTimeMillis()
             )
         )
@@ -41,6 +48,7 @@ class SmsHistoryStore(context: Context) {
                     .put("sender", message.sender)
                     .put("content", message.content)
                     .put("isAdvertisement", message.isAdvertisement)
+                    .put("classificationError", message.classificationError)
                     .put("receivedAt", message.receivedAt)
             )
         }
@@ -58,7 +66,12 @@ class SmsHistoryStore(context: Context) {
                         id = entry.optString("id"),
                         sender = entry.optString("sender", "Unknown sender"),
                         content = entry.optString("content"),
-                        isAdvertisement = entry.optBoolean("isAdvertisement"),
+                        isAdvertisement = if (entry.isNull("isAdvertisement")) {
+                            null
+                        } else {
+                            entry.optBoolean("isAdvertisement")
+                        },
+                        classificationError = entry.optString("classificationError").ifBlank { null },
                         receivedAt = entry.optLong("receivedAt")
                     )
                 )

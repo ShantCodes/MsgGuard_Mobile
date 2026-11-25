@@ -10,16 +10,14 @@ import kotlinx.coroutines.withContext
 class IdentifySpamUseCase(
     private val smsRepository: SmsRepository
 ) {
-    suspend fun execute(message: SmsMessage): Result<SpamResult> = withContext(Dispatchers.Default) {
-        // This will call the ML model to determine if the message is spam
-        val isSpam = smsRepository.isSpam(message.content)
-
-        Result.success(
+    suspend fun execute(message: SmsMessage): Result<SpamResult> = runCatching {
+        withContext(Dispatchers.Default) {
+            val isSpam = smsRepository.isSpam(message.content)
             SpamResult(
                 isSpam = isSpam,
                 actionTaken = if (isSpam) "Classified as advertisement" else "Classified as other"
             )
-        )
+        }
     }
 }
 

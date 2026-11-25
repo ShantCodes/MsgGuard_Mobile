@@ -26,9 +26,15 @@ class SpamCheckWorker(
             sender = sender
         ))
 
-        if (result.isSuccess) {
-            val spamResult = result.getOrThrow()
+        result.onSuccess { spamResult ->
             SmsHistoryStore(applicationContext).save(sender, content, spamResult.isSpam)
+        }.onFailure { error ->
+            SmsHistoryStore(applicationContext).save(
+                sender = sender,
+                content = content,
+                isAdvertisement = null,
+                classificationError = error.message ?: error.javaClass.simpleName
+            )
         }
 
         return Result.success()

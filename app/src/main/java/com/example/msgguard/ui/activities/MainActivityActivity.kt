@@ -57,11 +57,22 @@ class MainActivityActivity : Activity() {
                     setPadding(dp(16), dp(14), dp(16), dp(14))
                     setBackgroundColor(Color.WHITE)
                 }
-                val status = if (message.isAdvertisement) "ADVERTISEMENT" else "OTHER"
-                val statusColor = if (message.isAdvertisement) Color.rgb(185, 28, 28) else Color.rgb(21, 128, 61)
+                val status = when (message.isAdvertisement) {
+                    true -> "ADVERTISEMENT"
+                    false -> "OTHER"
+                    null -> "CLASSIFICATION FAILED"
+                }
+                val statusColor = when (message.isAdvertisement) {
+                    true -> Color.rgb(185, 28, 28)
+                    false -> Color.rgb(21, 128, 61)
+                    null -> Color.rgb(180, 83, 9)
+                }
                 card.addView(textView(status, 12, statusColor, Typeface.BOLD))
                 card.addView(textView(message.sender, 16, Color.rgb(15, 23, 42), Typeface.BOLD))
                 card.addView(textView(message.content, 15, Color.rgb(51, 65, 85)))
+                message.classificationError?.let { error ->
+                    card.addView(textView("AI error: $error", 13, Color.rgb(180, 83, 9)))
+                }
                 card.addView(textView(DateFormat.getDateTimeInstance().format(message.receivedAt), 12, Color.rgb(100, 116, 139)))
                 content.addView(card, LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
