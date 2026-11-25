@@ -7,17 +7,14 @@
     <uses-permission android:name="android.permission.SEND_SMS" />
 
     <application
-        android:allowBackup="true"        
-        android:label="MsgGuard">        
+        android:allowBackup="true"
+        android:label="MsgGuard">
 
         <receiver
             android:name=".receiver.SmsReceiver"
-            android:permission="android.permission.BROADCAST_SMS"
             android:exported="true">
             <intent-filter>
-                <action android:name="android.sms.sysmessagereceived" />
-                <action android:name="android.sms.smsmtoss" />
-                <data android:mimeType="text/message" />
+                <action android:name="android.sms.SMS_RECEIVED" />
             </intent-filter>
         </receiver>
 

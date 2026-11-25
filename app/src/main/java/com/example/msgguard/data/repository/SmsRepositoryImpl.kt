@@ -1,8 +1,6 @@
 package com.example.msgguard.data.repository
 
 import ai.onnxruntime.OnnxTensor
-import ai.onnxruntime.OnnxTensorImpl
-import ai.onnxruntime.OnnxRuntime
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import com.example.msgguard.domain.repository.SmsRepository
@@ -15,32 +13,45 @@ import java.io.File
  */
 class SmsRepositoryImpl : SmsRepository {
     private val env: OrtEnvironment = OrtEnvironment.getEnvironment()
-    private val session: OrtSession? = OrtSession.createForFile(File("app/src/main/assets/sms_model.onnx"), env)
+
+    // Initialize the session lazily to avoid blocking the main thread during application startup
+    private val session: OrtSession? by lazy {
+        try {
+            OrtSession.createForFile(File("app/src/main/assets/sms_model.onnx"), env)
+        } catch (e: Exception) {
+            println("Failed to initialize ONNX session: ${e.message}")
+            null
+        }
+    }
 
     override suspend fun isSpam(content: String): Boolean = withContext(Dispatchers.IO) {
-        if (session == null) return@withContext false
+        val currentSession = session
+        if (currentSession == null) return@withContext false
 
-        val inputNames = session.inputNames
+        val inputNames = currentSession.inputNames
         if (inputNames.isEmpty()) return@withContext false
 
         val inputName = inputNames[0]
         val shape = longArrayOf(1, 1)
 
-        // Create input tensor for string data
+        // Create the input tensor for String data
         val inputTensor = OnnxTensor.createTensor(env, inputName, shape, arrayOf(content))
 
-        val results = session.run(mapOf(inputName to inputTensor))
+        return@withContext try {
+            val results = currentSession.run(mapOf(inputName to inputTensor))
+            val output = results[0]
+            val outputData = output.value as FloatArray
 
-        // Retrieve results
-        val output = results[0]
-        val outputData = output.value as FloatArray
+            // Close the resources
+            inputTensor.close()
+            results.close()
 
-        // Clean up
-        inputTensor.close()
-        results.close()
-
-        // Check if any value in the output array exceeds the 0.5 spam threshold
-        return@withContext outputData.any { it > 0.5f }
+            // Return true if any probability in the output exceeds the 0.5 threshold
+            outputData.any { it > 0.5f }
+        } catch (e: Exception) {
+            println("Error during inference: ${e.message}")
+            false
+        }
     }
 
     override suspend fun markAsSpam(messageId: String) = withContext(Dispatchers.IO) {
