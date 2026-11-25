@@ -5,6 +5,7 @@ import android.app.Activity
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Typeface
+import android.os.Build
 import android.os.Bundle
 import android.view.Gravity
 import android.view.ViewGroup
@@ -21,12 +22,15 @@ class MainActivityActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val permissions = arrayOf(
+        val permissions = mutableListOf(
             Manifest.permission.RECEIVE_SMS,
             Manifest.permission.READ_SMS
         )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+        }
         if (permissions.any { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }) {
-            requestPermissions(permissions, REQUEST_SMS_PERMISSIONS)
+            requestPermissions(permissions.toTypedArray(), REQUEST_APP_PERMISSIONS)
         }
     }
 
@@ -96,6 +100,6 @@ class MainActivityActivity : Activity() {
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
     private companion object {
-        const val REQUEST_SMS_PERMISSIONS = 100
+        const val REQUEST_APP_PERMISSIONS = 100
     }
 }

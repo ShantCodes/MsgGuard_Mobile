@@ -7,6 +7,7 @@ import com.example.msgguard.data.local.SmsHistoryStore
 import com.example.msgguard.domain.usecase.IdentifySpamUseCase
 import com.example.msgguard.domain.usecase.SmsMessage
 import com.example.msgguard.data.repository.SmsRepositoryImpl
+import com.example.msgguard.notifications.SmsNotifier
 
 class SpamCheckWorker(
     context: Context,
@@ -28,6 +29,9 @@ class SpamCheckWorker(
 
         result.onSuccess { spamResult ->
             SmsHistoryStore(applicationContext).save(sender, content, spamResult.isSpam)
+            if (!spamResult.isSpam) {
+                SmsNotifier(applicationContext).notify(sender, content)
+            }
         }.onFailure { error ->
             SmsHistoryStore(applicationContext).save(
                 sender = sender,
