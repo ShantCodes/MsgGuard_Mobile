@@ -26,16 +26,15 @@ class ContactDirectory(private val context: Context) {
         if (term.isBlank() || context.checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) return emptyList()
         return runCatching {
             val results = linkedSetOf<ContactEntry>()
-            val phone = ContactsContract.CommonDataKinds.Phone
             context.contentResolver.query(
-                phone.CONTENT_URI,
-                arrayOf(phone.DISPLAY_NAME, phone.NUMBER),
-                "${phone.DISPLAY_NAME} LIKE ? OR ${phone.NUMBER} LIKE ?",
+                ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                arrayOf(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME, ContactsContract.CommonDataKinds.Phone.NUMBER),
+                "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} LIKE ? OR ${ContactsContract.CommonDataKinds.Phone.NUMBER} LIKE ?",
                 arrayOf("%$term%", "%$term%"),
-                "${phone.DISPLAY_NAME} COLLATE NOCASE ASC"
+                "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} COLLATE NOCASE ASC"
             )?.use { cursor ->
-                val nameIndex = cursor.getColumnIndexOrThrow(phone.DISPLAY_NAME)
-                val numberIndex = cursor.getColumnIndexOrThrow(phone.NUMBER)
+                val nameIndex = cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
+                val numberIndex = cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.NUMBER)
                 while (cursor.moveToNext() && results.size < limit) {
                     val name = cursor.getString(nameIndex).orEmpty().trim()
                     val number = cursor.getString(numberIndex).orEmpty().trim()
