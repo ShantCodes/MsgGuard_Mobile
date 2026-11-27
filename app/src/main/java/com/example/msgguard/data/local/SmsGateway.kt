@@ -61,7 +61,7 @@ class SmsGateway(context: Context) {
             action = if (kind == "delivered") SmsStatusReceiver.ACTION_DELIVERED else SmsStatusReceiver.ACTION_SENT
             data = Uri.parse("msgguard://sms-status/$id/$part/$kind")
         }
-        val requestCode = (id xor (part.toLong() shl 16) xor kind.hashCode()).toInt()
+        val requestCode = (id xor (part.toLong() shl 16) xor kind.hashCode().toLong()).toInt()
         return PendingIntent.getBroadcast(appContext, requestCode, intent, flags)
     }
 
