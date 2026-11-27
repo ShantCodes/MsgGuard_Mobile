@@ -210,7 +210,7 @@ class MainActivityActivity : Activity() {
 
         uiScope.launch(Dispatchers.IO) {
             if (checkSelfPermission(Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED) {
-                val classifiedMessages = SmsHistoryStore(this).load()
+                val classifiedMessages = SmsHistoryStore(this@MainActivityActivity).load()
                 val allMessages = loadInboxMessages(classifiedMessages)
                 val filtered = allMessages.filter { message ->
                     when (selectedFilter) {
