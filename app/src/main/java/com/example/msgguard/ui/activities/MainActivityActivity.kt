@@ -100,7 +100,7 @@ class MainActivityActivity : Activity() {
                     text = status
                     textSize = 12f
                     setTextColor(statusColor)
-                    setTypeface(TypeFace.DEFAULT, TypeFace.BOLD)
+                    setTypeface(Typeface.DEFAULT, Typeface.BOLD)
                     setPadding(dp(8), dp(4), dp(8), dp(4))
                 }
 
@@ -108,7 +108,7 @@ class MainActivityActivity : Activity() {
                     text = message.sender
                     textSize = 16f
                     setTextColor(Color.BLACK)
-                    setTypeface(TypeFace.DEFAULT, TypeFace.BOLD)
+                    setTypeface(Typeface.DEFAULT, Typeface.BOLD)
                     setPadding(dp(8), 0, 0, dp(4))
                 }
 
@@ -131,7 +131,7 @@ class MainActivityActivity : Activity() {
                     text = DateFormat.getDateTimeInstance().format(message.receivedAt)
                     textSize = 12f
                     setTextColor(Color.GRAY)
-                    setTypeface(TypeFace.DEFAULT, TypeFace.ITALIC)
+                    setTypeface(Typeface.DEFAULT, Typeface.ITALIC)
                 }
                 card.addView(timeText)
 
@@ -151,7 +151,7 @@ class MainActivityActivity : Activity() {
         this.text = text
         textSize = size.toFloat()
         setTextColor(color)
-        setTypeface(typeface, style)
+        setTypeface(Typeface.DEFAULT, style)
         gravity = Gravity.START
         setLineSpacing(0f, 1.15f)
     }
