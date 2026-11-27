@@ -37,6 +37,12 @@ import com.example.msgguard.sms.SmsAddresses
 import com.example.msgguard.sms.SmsDatabase
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import java.text.DateFormat
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** Thread detail and compose screen, styled to match the MsgGuard inbox. */
 class ConversationActivity : Activity() {
@@ -49,6 +55,8 @@ class ConversationActivity : Activity() {
     private var stickToBottom = true
     private var sendInFlight = false
     private var watching = false
+    private val uiScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var conversationGeneration = 0
     private val mainHandler = Handler(Looper.getMainLooper())
     private val refreshRunnable = Runnable { refreshMessages() }
     private val dark by lazy { getSharedPreferences("ui_preferences", MODE_PRIVATE).getBoolean("dark_mode", false) }
@@ -115,6 +123,7 @@ class ConversationActivity : Activity() {
 
     override fun onDestroy() {
         mainHandler.removeCallbacks(refreshRunnable)
+        uiScope.cancel()
         super.onDestroy()
     }
 
@@ -127,10 +136,7 @@ class ConversationActivity : Activity() {
 
     private fun showCurrentThread() {
         ActiveThread.address = recipient.takeIf { it.isNotBlank() }
-        if (recipient.isNotBlank()) {
-            runCatching { SystemSmsStore(this).markConversationRead(recipient) }
-            SmsNotifier(this).cancel(recipient)
-        }
+        if (recipient.isNotBlank()) SmsNotifier(this).cancel(recipient)
         if (::messages.isInitialized) refreshMessages()
     }
 
@@ -224,27 +230,35 @@ class ConversationActivity : Activity() {
     private fun refreshMessages() {
         if (!::messages.isInitialized) return
         val followTail = stickToBottom
+        val requestedRecipient = recipient
+        val generation = ++conversationGeneration
         recipientInput.visibility = if (recipient.isBlank()) View.VISIBLE else View.GONE
         titleView.text = headerTitle()
         messages.removeAllViews()
-        if (recipient.isBlank()) {
+        if (requestedRecipient.isBlank()) {
             messages.addView(emptyLabel("Add a phone number to start a conversation."))
             return
         }
-        val thread = runCatching { SystemSmsStore(this).loadConversation(recipient) }.getOrElse { emptyList() }
-        val visible = if (thread.size > MAX_VISIBLE_MESSAGES) thread.takeLast(MAX_VISIBLE_MESSAGES) else thread
-        if (thread.size > visible.size) messages.addView(emptyLabel("Showing the latest $MAX_VISIBLE_MESSAGES messages."))
-        if (visible.isEmpty()) messages.addView(emptyLabel("Start the conversation with a message below."))
-        visible.forEach { message ->
-            messages.addView(
-                messageBubble(message),
-                LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                    gravity = if (message.isOutgoing()) Gravity.END else Gravity.START
-                    topMargin = dp(7)
+        messages.addView(emptyLabel("Loading messages…"))
+        uiScope.launch(Dispatchers.IO) {
+            val store = SystemSmsStore(this@ConversationActivity)
+            runCatching { store.markConversationRead(requestedRecipient) }
+            val thread = runCatching { store.loadConversation(requestedRecipient) }.getOrElse { emptyList() }
+            withContext(Dispatchers.Main) {
+                if (isFinishing || isDestroyed || generation != conversationGeneration || recipient != requestedRecipient) return@withContext
+                messages.removeAllViews()
+                val visible = if (thread.size > MAX_VISIBLE_MESSAGES) thread.takeLast(MAX_VISIBLE_MESSAGES) else thread
+                if (thread.size > visible.size) messages.addView(emptyLabel("Showing the latest $MAX_VISIBLE_MESSAGES messages."))
+                if (visible.isEmpty()) messages.addView(emptyLabel("Start the conversation with a message below."))
+                visible.forEach { message ->
+                    messages.addView(messageBubble(message), LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        gravity = if (message.isOutgoing()) Gravity.END else Gravity.START
+                        topMargin = dp(7)
+                    })
                 }
-            )
+                if (followTail) transcript.post { transcript.fullScroll(View.FOCUS_DOWN) }
+            }
         }
-        if (followTail) transcript.post { transcript.fullScroll(View.FOCUS_DOWN) }
     }
 
     private fun messageBubble(message: SmsRecord) = LinearLayout(this).apply {

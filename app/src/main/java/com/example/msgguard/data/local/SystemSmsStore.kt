@@ -4,6 +4,7 @@ import android.content.ContentResolver
 import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
+import android.os.Bundle
 import android.database.Cursor
 import android.provider.Telephony
 import com.example.msgguard.sms.SmsAddresses
@@ -36,13 +37,7 @@ class SystemSmsStore(private val context: Context) {
 
     fun loadThreads(): List<SmsThread> {
         val grouped = linkedMapOf<String, ThreadBuilder>()
-        resolver.query(
-            Telephony.Sms.CONTENT_URI,
-            PROJECTION,
-            null,
-            null,
-            "${Telephony.Sms.DATE} DESC"
-        )?.use { cursor ->
+        queryRecentSms(MAX_THREAD_SCAN)?.use { cursor ->
             while (cursor.moveToNext()) {
                 val record = cursor.toRecord()
                 val key = if (record.threadId > 0) "t:${record.threadId}" else "a:${record.address.lowercase()}"
@@ -55,31 +50,23 @@ class SystemSmsStore(private val context: Context) {
             }
         }
 
-        val merged = mutableListOf<ThreadBuilder>()
-        for (builder in grouped.values) {
-            val match = merged.firstOrNull { SmsAddresses.same(context, it.address, builder.address) }
-            if (match == null) merged += builder else match.merge(builder)
-        }
-        return merged.map { it.toThread() }.sortedByDescending { it.date }
+        // THREAD_ID is supplied by Android and avoids an expensive O(n²) address-normalisation pass.
+        return grouped.values.map { it.toThread() }.sortedByDescending { it.date }
     }
 
     fun loadConversation(address: String): List<SmsRecord> {
         if (address.isBlank()) return emptyList()
-        val threadIds = threadIdsFor(address)
-        if (threadIds.isEmpty()) return messagesForAddress(address)
         val messages = mutableListOf<SmsRecord>()
-        threadIds.forEach { threadId ->
-            resolver.query(
-                Telephony.Sms.CONTENT_URI,
-                PROJECTION,
-                "${Telephony.Sms.THREAD_ID} = ?",
-                arrayOf(threadId.toString()),
-                "${Telephony.Sms.DATE} ASC"
-            )?.use { cursor ->
-                while (cursor.moveToNext()) messages += cursor.toRecord()
-            }
-        }
-        return messages.sortedBy { it.date }
+        val threadId = threadIdFor(address)
+        val selection = if (threadId != null) "${Telephony.Sms.THREAD_ID} = ?" else "${Telephony.Sms.ADDRESS} = ?"
+        val selectionArgs = arrayOf((threadId ?: address).toString())
+        resolver.query(
+            Telephony.Sms.CONTENT_URI,
+            PROJECTION,
+            queryArgs(selection, selectionArgs, "${Telephony.Sms.DATE} DESC", MAX_CONVERSATION_MESSAGES),
+            null
+        )?.use { cursor -> while (cursor.moveToNext()) messages += cursor.toRecord() }
+        return messages.asReversed()
     }
 
     fun loadMessage(id: Long): SmsRecord? {
@@ -142,40 +129,24 @@ class SystemSmsStore(private val context: Context) {
 
     fun markConversationRead(address: String): Int {
         if (address.isBlank()) return 0
-        var updated = 0
-        threadIdsFor(address).forEach { threadId ->
-            updated += resolver.update(
-                Telephony.Sms.CONTENT_URI,
-                readValues(),
-                "${Telephony.Sms.THREAD_ID} = ? AND ${Telephony.Sms.TYPE} = ? AND ${Telephony.Sms.READ} = 0",
-                arrayOf(threadId.toString(), Telephony.Sms.MESSAGE_TYPE_INBOX.toString())
-            )
-        }
-        updated += resolver.update(
+        val threadId = threadIdFor(address)
+        return resolver.update(
             Telephony.Sms.CONTENT_URI,
             readValues(),
-            "${Telephony.Sms.ADDRESS} = ? AND ${Telephony.Sms.TYPE} = ? AND ${Telephony.Sms.READ} = 0",
-            arrayOf(address, Telephony.Sms.MESSAGE_TYPE_INBOX.toString())
+            if (threadId != null) "${Telephony.Sms.THREAD_ID} = ? AND ${Telephony.Sms.TYPE} = ? AND ${Telephony.Sms.READ} = 0" else "${Telephony.Sms.ADDRESS} = ? AND ${Telephony.Sms.TYPE} = ? AND ${Telephony.Sms.READ} = 0",
+            if (threadId != null) arrayOf(threadId.toString(), Telephony.Sms.MESSAGE_TYPE_INBOX.toString()) else arrayOf(address, Telephony.Sms.MESSAGE_TYPE_INBOX.toString())
         )
-        return updated
     }
 
     fun deleteMessage(id: Long): Boolean =
         resolver.delete(ContentUris.withAppendedId(Telephony.Sms.CONTENT_URI, id), null, null) > 0
 
     fun deleteThread(address: String): Boolean {
-        val ids = threadIdsFor(address)
-        if (ids.isEmpty()) return false
+        val threadId = threadIdFor(address) ?: return false
         var removed = 0
-        ids.forEach { threadId ->
-            val threadUri = ContentUris.withAppendedId(Telephony.Threads.CONTENT_URI, threadId)
-            removed += runCatching { resolver.delete(threadUri, null, null) }.getOrDefault(0)
-            removed += resolver.delete(
-                Telephony.Sms.CONTENT_URI,
-                "${Telephony.Sms.THREAD_ID} = ?",
-                arrayOf(threadId.toString())
-            )
-        }
+        val threadUri = ContentUris.withAppendedId(Telephony.Threads.CONTENT_URI, threadId)
+        removed += runCatching { resolver.delete(threadUri, null, null) }.getOrDefault(0)
+        removed += resolver.delete(Telephony.Sms.CONTENT_URI, "${Telephony.Sms.THREAD_ID} = ?", arrayOf(threadId.toString()))
         if (removed == 0) {
             messagesForAddress(address).forEach { message ->
                 if (deleteMessage(message.id)) removed += 1
@@ -184,41 +155,24 @@ class SystemSmsStore(private val context: Context) {
         return removed > 0
     }
 
-    private fun messagesForAddress(address: String): List<SmsRecord> {
-        val messages = mutableListOf<SmsRecord>()
-        resolver.query(
-            Telephony.Sms.CONTENT_URI,
-            PROJECTION,
-            null,
-            null,
-            "${Telephony.Sms.DATE} ASC"
-        )?.use { cursor ->
-            while (cursor.moveToNext()) {
-                val record = cursor.toRecord()
-                if (SmsAddresses.same(context, address, record.address)) messages += record
-            }
-        }
-        return messages
-    }
+    private fun messagesForAddress(address: String): List<SmsRecord> = loadConversation(address)
 
-    private fun threadIdsFor(address: String): Set<Long> {
-        val ids = mutableSetOf<Long>()
-        resolver.query(
-            Telephony.Sms.CONTENT_URI,
-            arrayOf(Telephony.Sms.THREAD_ID, Telephony.Sms.ADDRESS),
-            null,
-            null,
-            null
-        )?.use { cursor ->
-            val threadIndex = cursor.getColumnIndexOrThrow(Telephony.Sms.THREAD_ID)
-            val addressIndex = cursor.getColumnIndexOrThrow(Telephony.Sms.ADDRESS)
-            while (cursor.moveToNext()) {
-                val threadId = cursor.getLong(threadIndex)
-                val rowAddress = cursor.getString(addressIndex).orEmpty()
-                if (threadId > 0 && SmsAddresses.same(context, address, rowAddress)) ids += threadId
-            }
-        }
-        return ids
+    private fun threadIdFor(address: String): Long? = runCatching {
+        Telephony.Threads.getOrCreateThreadId(context, address).takeIf { it > 0 }
+    }.getOrNull()
+
+    private fun queryRecentSms(limit: Int) = resolver.query(
+        Telephony.Sms.CONTENT_URI,
+        PROJECTION,
+        queryArgs(null, null, "${Telephony.Sms.DATE} DESC", limit),
+        null
+    )
+
+    private fun queryArgs(selection: String?, selectionArgs: Array<String>?, sort: String, limit: Int) = Bundle().apply {
+        putString(ContentResolver.QUERY_ARG_SQL_SELECTION, selection)
+        putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, selectionArgs)
+        putString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER, sort)
+        putString(ContentResolver.QUERY_ARG_SQL_LIMIT, limit.toString())
     }
 
     private fun alreadyStored(address: String, body: String, date: Long, type: Int): Boolean {
@@ -289,18 +243,14 @@ class SystemSmsStore(private val context: Context) {
             if (record.type == Telephony.Sms.MESSAGE_TYPE_INBOX && lastIncoming == null) lastIncoming = record
         }
 
-        fun merge(other: ThreadBuilder) {
-            unread += other.unread
-            if (other.latest.date > latest.date) latest = other.latest
-            val incoming = other.lastIncoming ?: return
-            if (lastIncoming == null || incoming.date > lastIncoming!!.date) lastIncoming = incoming
-        }
-
         fun toThread() = SmsThread(address, latest.body, latest.date, unread, latest, lastIncoming)
     }
 
     private companion object {
         const val DUPLICATE_WINDOW_MS = 2_000L
+        /** Bounded reads prevent a large device-wide SMS archive from blocking the UI. */
+        const val MAX_THREAD_SCAN = 800
+        const val MAX_CONVERSATION_MESSAGES = 500
         val PROJECTION = arrayOf(
             Telephony.Sms._ID,
             Telephony.Sms.THREAD_ID,

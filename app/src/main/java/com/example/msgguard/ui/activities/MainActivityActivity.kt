@@ -1,5 +1,10 @@
-import androidx.lifecycle.lifecycleScope
+package com.example.msgguard.ui.activities
+
+import android.Manifest
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -51,6 +56,8 @@ class MainActivityActivity : Activity() {
     private var scrollY = 0
     private var resetScroll = false
     private var watching = false
+    private val uiScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var inboxGeneration = 0
     private val mainHandler = Handler(Looper.getMainLooper())
     private val refreshRunnable = Runnable { renderInbox() }
     private val smsObserver = object : ContentObserver(mainHandler) {
@@ -106,6 +113,7 @@ class MainActivityActivity : Activity() {
 
     override fun onDestroy() {
         mainHandler.removeCallbacks(refreshRunnable)
+        uiScope.cancel()
         super.onDestroy()
     }
 
@@ -174,6 +182,7 @@ class MainActivityActivity : Activity() {
     }
 
     private fun renderInbox() {
+        val generation = ++inboxGeneration
         val y = if (resetScroll) 0 else if (::scrollView.isInitialized) scrollView.scrollY else scrollY
         resetScroll = false
         palette = Palette(isDarkMode())
@@ -186,8 +195,20 @@ class MainActivityActivity : Activity() {
         content.addView(createTopBar())
         content.addView(createTitleRow(), marginParams(top = 28))
         content.addView(createFilterBar(), marginParams(top = 18))
+        val inboxContent = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        inboxContent.addView(createSectionLabel(0), marginParams(top = 26, bottom = 4))
+        inboxContent.addView(createLoadingState(), marginParams(top = 12))
+        content.addView(inboxContent)
+        scrollView = ScrollView(this).apply {
+            isFillViewport = true
+            setBackgroundColor(palette.background)
+            addView(content, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+        scrollY = y
+        setContentView(scrollView)
+        if (y > 0) scrollView.post { scrollView.scrollTo(0, y) }
 
-        lifecycleScope.launch(Dispatchers.IO) {
+        uiScope.launch(Dispatchers.IO) {
             if (checkSelfPermission(Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED) {
                 val classifiedMessages = SmsHistoryStore(this).load()
                 val allMessages = loadInboxMessages(classifiedMessages)
@@ -199,30 +220,19 @@ class MainActivityActivity : Activity() {
                     }
                 }
                 withContext(Dispatchers.Main) {
-                    content.addView(createSectionLabel(filtered.size), marginParams(top = 26, bottom = 4))
-                    if (filtered.isEmpty()) content.addView(createEmptyState(allMessages.isNotEmpty()), marginParams(top = 12))
+                    if (isFinishing || isDestroyed || generation != inboxGeneration) return@withContext
+                    inboxContent.removeAllViews()
+                    inboxContent.addView(createSectionLabel(filtered.size), marginParams(top = 26, bottom = 4))
+                    if (filtered.isEmpty()) inboxContent.addView(createEmptyState(allMessages.isNotEmpty()), marginParams(top = 12))
                     else filtered.forEachIndexed { index, message ->
-                        content.addView(createMessageCard(message), marginParams(top = if (index == 0) 8 else 12))
+                        inboxContent.addView(createMessageCard(message), marginParams(top = if (index == 0) 8 else 12))
                     }
-
-                    scrollView = ScrollView(this).apply {
-                        isFillViewport = true
-                        setBackgroundColor(palette.background)
-                        addView(content, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-                    }
-                    scrollY = y
-                    setContentView(scrollView)
-                    if (y > 0) scrollView.post { scrollView.scrollTo(0, y) }
                 }
             } else {
                 withContext(Dispatchers.Main) {
-                    content.addView(createEmptyState(false), marginParams(top = 12))
-                    scrollView = ScrollView(this).apply {
-                        isFillViewport = true
-                        setBackgroundColor(palette.background)
-                        addView(content, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-                    }
-                    setContentView(scrollView)
+                    if (isFinishing || isDestroyed || generation != inboxGeneration) return@withContext
+                    inboxContent.removeAllViews()
+                    inboxContent.addView(createEmptyState(false), marginParams(top = 12))
                 }
             }
         }
@@ -407,6 +417,15 @@ class MainActivityActivity : Activity() {
                 }
             }
         }
+    }
+
+    private fun createLoadingState(): View = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        gravity = Gravity.CENTER_HORIZONTAL
+        setPadding(dp(24), dp(34), dp(24), dp(34))
+        background = rounded(palette.surface, 24, palette.outline)
+        addView(label("Loading your messages…", 16f, palette.text, Typeface.BOLD))
+        addView(label("Preparing your inbox", 14f, palette.textSecondary).apply { setPadding(0, dp(6), 0, 0) })
     }
 
     private fun showSettings() {
