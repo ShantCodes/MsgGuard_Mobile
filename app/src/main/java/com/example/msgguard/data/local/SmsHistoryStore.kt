@@ -59,6 +59,24 @@ class SmsHistoryStore(context: Context) {
         loadUnlocked()
     }
 
+    /** A user label applies to the entire conversation and overrides automatic classification. */
+    fun setManualClassification(sender: String, isAdvertisement: Boolean) = synchronized(LOCK) {
+        val labels = loadManualLabelsUnlocked()
+        labels.put(labelKey(sender), isAdvertisement)
+        preferences.edit().putString(MANUAL_LABELS_KEY, labels.toString()).apply()
+    }
+
+    fun manualClassifications(): Map<String, Boolean> = synchronized(LOCK) {
+        val labels = loadManualLabelsUnlocked()
+        buildMap {
+            labels.keys().forEach { key ->
+                if (!labels.isNull(key)) put(key, labels.optBoolean(key))
+            }
+        }
+    }
+
+    fun manualLabelKey(sender: String): String = labelKey(sender)
+
     private fun loadUnlocked(): List<StoredSms> = try {
         val rawHistory = preferences.getString(HISTORY_KEY, "[]") ?: "[]"
         val entries = JSONArray(rawHistory)
@@ -85,10 +103,19 @@ class SmsHistoryStore(context: Context) {
         emptyList()
     }
 
+    private fun loadManualLabelsUnlocked(): JSONObject = try {
+        JSONObject(preferences.getString(MANUAL_LABELS_KEY, "{}") ?: "{}")
+    } catch (_: Exception) {
+        JSONObject()
+    }
+
+    private fun labelKey(sender: String) = sender.trim().lowercase()
+
     private companion object {
         val LOCK = Any()
         const val PREFERENCES_NAME = "sms_history"
         const val HISTORY_KEY = "messages"
+        const val MANUAL_LABELS_KEY = "manual_conversation_labels"
         const val MAX_HISTORY_ITEMS = 500
     }
 }
