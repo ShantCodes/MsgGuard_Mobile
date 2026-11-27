@@ -1,6 +1,8 @@
-package com.example.msgguard.ui.activities
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
-import android.Manifest
 import android.app.Activity
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -185,29 +187,45 @@ class MainActivityActivity : Activity() {
         content.addView(createTitleRow(), marginParams(top = 28))
         content.addView(createFilterBar(), marginParams(top = 18))
 
-        val classifiedMessages = SmsHistoryStore(this).load()
-        val allMessages = loadInboxMessages(classifiedMessages)
-        val filtered = allMessages.filter { message ->
-            when (selectedFilter) {
-                MessageFilter.ALL -> true
-                MessageFilter.ADVERTISEMENTS -> message.isAdvertisement == true
-                MessageFilter.KEEP -> message.isAdvertisement == false
+        lifecycleScope.launch(Dispatchers.IO) {
+            if (checkSelfPermission(Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED) {
+                val classifiedMessages = SmsHistoryStore(this).load()
+                val allMessages = loadInboxMessages(classifiedMessages)
+                val filtered = allMessages.filter { message ->
+                    when (selectedFilter) {
+                        MessageFilter.ALL -> true
+                        MessageFilter.ADVERTISEMENTS -> message.isAdvertisement == true
+                        MessageFilter.KEEP -> message.isAdvertisement == false
+                    }
+                }
+                withContext(Dispatchers.Main) {
+                    content.addView(createSectionLabel(filtered.size), marginParams(top = 26, bottom = 4))
+                    if (filtered.isEmpty()) content.addView(createEmptyState(allMessages.isNotEmpty()), marginParams(top = 12))
+                    else filtered.forEachIndexed { index, message ->
+                        content.addView(createMessageCard(message), marginParams(top = if (index == 0) 8 else 12))
+                    }
+
+                    scrollView = ScrollView(this).apply {
+                        isFillViewport = true
+                        setBackgroundColor(palette.background)
+                        addView(content, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+                    }
+                    scrollY = y
+                    setContentView(scrollView)
+                    if (y > 0) scrollView.post { scrollView.scrollTo(0, y) }
+                }
+            } else {
+                withContext(Dispatchers.Main) {
+                    content.addView(createEmptyState(false), marginParams(top = 12))
+                    scrollView = ScrollView(this).apply {
+                        isFillViewport = true
+                        setBackgroundColor(palette.background)
+                        addView(content, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+                    }
+                    setContentView(scrollView)
+                }
             }
         }
-        content.addView(createSectionLabel(filtered.size), marginParams(top = 26, bottom = 4))
-        if (filtered.isEmpty()) content.addView(createEmptyState(allMessages.isNotEmpty()), marginParams(top = 12))
-        else filtered.forEachIndexed { index, message ->
-            content.addView(createMessageCard(message), marginParams(top = if (index == 0) 8 else 12))
-        }
-
-        scrollView = ScrollView(this).apply {
-            isFillViewport = true
-            setBackgroundColor(palette.background)
-            addView(content, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        }
-        scrollY = y
-        setContentView(scrollView)
-        if (y > 0) scrollView.post { scrollView.scrollTo(0, y) }
     }
 
     private fun createTopBar(): View = LinearLayout(this).apply {
