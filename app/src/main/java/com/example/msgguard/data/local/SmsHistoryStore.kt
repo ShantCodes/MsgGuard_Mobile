@@ -26,8 +26,8 @@ class SmsHistoryStore(context: Context) {
         content: String,
         isAdvertisement: Boolean?,
         classificationError: String? = null
-    ) {
-        val messages = load().toMutableList()
+    ) = synchronized(LOCK) {
+        val messages = loadUnlocked().toMutableList()
         messages.add(
             0,
             StoredSms(
@@ -55,7 +55,11 @@ class SmsHistoryStore(context: Context) {
         preferences.edit().putString(HISTORY_KEY, entries.toString()).apply()
     }
 
-    fun load(): List<StoredSms> = try {
+    fun load(): List<StoredSms> = synchronized(LOCK) {
+        loadUnlocked()
+    }
+
+    private fun loadUnlocked(): List<StoredSms> = try {
         val rawHistory = preferences.getString(HISTORY_KEY, "[]") ?: "[]"
         val entries = JSONArray(rawHistory)
         buildList {
@@ -82,6 +86,7 @@ class SmsHistoryStore(context: Context) {
     }
 
     private companion object {
+        val LOCK = Any()
         const val PREFERENCES_NAME = "sms_history"
         const val HISTORY_KEY = "messages"
         const val MAX_HISTORY_ITEMS = 500
