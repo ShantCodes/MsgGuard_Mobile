@@ -15,7 +15,9 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Telephony
+import android.text.Editable
 import android.text.InputType
+import android.text.TextWatcher
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -26,6 +28,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import com.example.msgguard.data.local.ContactDirectory
+import com.example.msgguard.data.local.ContactEntry
 import com.example.msgguard.data.local.SmsGateway
 import com.example.msgguard.data.local.SmsRecord
 import com.example.msgguard.data.local.SystemSmsStore
@@ -51,12 +54,15 @@ class ConversationActivity : Activity() {
     private lateinit var messages: LinearLayout
     private lateinit var transcript: ScrollView
     private lateinit var recipientInput: EditText
+    private lateinit var contactResults: LinearLayout
     private lateinit var composer: EditText
     private var stickToBottom = true
     private var sendInFlight = false
     private var watching = false
+    private var renderedRecipient: String? = null
     private val uiScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var conversationGeneration = 0
+    private var contactSearchGeneration = 0
     private val mainHandler = Handler(Looper.getMainLooper())
     private val refreshRunnable = Runnable { refreshMessages() }
     private val dark by lazy { getSharedPreferences("ui_preferences", MODE_PRIVATE).getBoolean("dark_mode", false) }
@@ -155,18 +161,25 @@ class ConversationActivity : Activity() {
         }
         root.addView(createHeader())
         recipientInput = EditText(this).apply {
-            hint = "Phone number"
+            hint = "Search contacts or enter a number"
             setText(recipient)
             textSize = 16f
             setTextColor(colors.text)
             setHintTextColor(colors.muted)
-            inputType = InputType.TYPE_CLASS_PHONE
+            inputType = InputType.TYPE_CLASS_TEXT
             background = rounded(colors.surfaceVariant, 16)
             setPadding(dp(16), 0, dp(16), 0)
             isSingleLine = true
             visibility = if (recipient.isBlank()) View.VISIBLE else View.GONE
         }
         root.addView(recipientInput, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)).apply { topMargin = dp(16) })
+        contactResults = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        root.addView(contactResults, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        recipientInput.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(value: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(value: CharSequence?, start: Int, before: Int, count: Int) = Unit
+            override fun afterTextChanged(value: Editable?) = searchContacts(value?.toString().orEmpty())
+        })
         transcript = ScrollView(this).apply { isFillViewport = true }
         messages = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -180,7 +193,6 @@ class ConversationActivity : Activity() {
         root.addView(transcript, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         root.addView(createComposer(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         setContentView(root)
-        refreshMessages()
     }
 
     private fun createHeader() = LinearLayout(this).apply {
@@ -234,12 +246,17 @@ class ConversationActivity : Activity() {
         val generation = ++conversationGeneration
         recipientInput.visibility = if (recipient.isBlank()) View.VISIBLE else View.GONE
         titleView.text = headerTitle()
-        messages.removeAllViews()
         if (requestedRecipient.isBlank()) {
+            renderedRecipient = null
+            messages.removeAllViews()
             messages.addView(emptyLabel("Add a phone number to start a conversation."))
             return
         }
-        messages.addView(emptyLabel("Loading messages…"))
+        val initialLoad = renderedRecipient != requestedRecipient
+        if (initialLoad) {
+            messages.removeAllViews()
+            messages.addView(emptyLabel("Loading messages…"))
+        }
         uiScope.launch(Dispatchers.IO) {
             val store = SystemSmsStore(this@ConversationActivity)
             runCatching { store.markConversationRead(requestedRecipient) }
@@ -247,6 +264,7 @@ class ConversationActivity : Activity() {
             withContext(Dispatchers.Main) {
                 if (isFinishing || isDestroyed || generation != conversationGeneration || recipient != requestedRecipient) return@withContext
                 messages.removeAllViews()
+                renderedRecipient = requestedRecipient
                 val visible = if (thread.size > MAX_VISIBLE_MESSAGES) thread.takeLast(MAX_VISIBLE_MESSAGES) else thread
                 if (thread.size > visible.size) messages.addView(emptyLabel("Showing the latest $MAX_VISIBLE_MESSAGES messages."))
                 if (visible.isEmpty()) messages.addView(emptyLabel("Start the conversation with a message below."))
@@ -258,6 +276,57 @@ class ConversationActivity : Activity() {
                 }
                 if (followTail) transcript.post { transcript.fullScroll(View.FOCUS_DOWN) }
             }
+        }
+    }
+
+    private fun searchContacts(query: String) {
+        val generation = ++contactSearchGeneration
+        if (recipient.isNotBlank() || query.trim().isBlank()) {
+            if (::contactResults.isInitialized) contactResults.removeAllViews()
+            return
+        }
+        uiScope.launch(Dispatchers.IO) {
+            val results = ContactDirectory(this@ConversationActivity).search(query)
+            withContext(Dispatchers.Main) {
+                if (isFinishing || isDestroyed || generation != contactSearchGeneration || recipient.isNotBlank()) return@withContext
+                showContactResults(results)
+            }
+        }
+    }
+
+    private fun showContactResults(results: List<ContactEntry>) {
+        contactResults.removeAllViews()
+        results.forEach { entry ->
+            val row = LinearLayout(this).apply {
+                gravity = Gravity.CENTER_VERTICAL
+                orientation = LinearLayout.HORIZONTAL
+                setPadding(dp(12), dp(10), dp(12), dp(10))
+                background = rounded(colors.surface, 16, colors.outline)
+                setOnClickListener {
+                    recipient = entry.number
+                    recipientInput.setText(entry.number)
+                    recipientInput.visibility = View.GONE
+                    contactResults.removeAllViews()
+                    titleView.text = entry.name
+                    stickToBottom = true
+                    refreshMessages()
+                }
+            }
+            row.addView(TextView(this).apply {
+                text = entry.name.first().uppercaseChar().toString()
+                gravity = Gravity.CENTER
+                textSize = 15f
+                setTypeface(Typeface.DEFAULT, Typeface.BOLD)
+                setTextColor(colors.brand)
+                background = rounded(colors.surfaceVariant, 16)
+            }, LinearLayout.LayoutParams(dp(36), dp(36)))
+            row.addView(LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(12), 0, 0, 0)
+                addView(TextView(this@ConversationActivity).apply { text = entry.name; textSize = 16f; setTextColor(colors.text); setTypeface(Typeface.DEFAULT, Typeface.BOLD) })
+                addView(TextView(this@ConversationActivity).apply { text = entry.number; textSize = 13f; setTextColor(colors.muted); setPadding(0, dp(2), 0, 0) })
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            contactResults.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) })
         }
     }
 

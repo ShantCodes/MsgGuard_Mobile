@@ -57,9 +57,13 @@ class MainActivityActivity : Activity() {
     private var resetScroll = false
     private var watching = false
     private val uiScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private var inboxGeneration = 0
+    private var cachedInbox: List<InboxItem>? = null
+    private var inboxLoadInFlight = false
     private val mainHandler = Handler(Looper.getMainLooper())
-    private val refreshRunnable = Runnable { renderInbox() }
+    private val refreshRunnable = Runnable {
+        cachedInbox = null
+        renderInbox()
+    }
     private val smsObserver = object : ContentObserver(mainHandler) {
         override fun onChange(selfChange: Boolean) = scheduleRefresh()
     }
@@ -126,7 +130,7 @@ class MainActivityActivity : Activity() {
     private fun scheduleRefresh() {
         if (isFinishing) return
         mainHandler.removeCallbacks(refreshRunnable)
-        mainHandler.postDelayed(refreshRunnable, 150)
+        mainHandler.postDelayed(refreshRunnable, 350)
     }
 
     private fun handleExternalIntent(intent: Intent?) {
@@ -182,7 +186,6 @@ class MainActivityActivity : Activity() {
     }
 
     private fun renderInbox() {
-        val generation = ++inboxGeneration
         val y = if (resetScroll) 0 else if (::scrollView.isInitialized) scrollView.scrollY else scrollY
         resetScroll = false
         palette = Palette(isDarkMode())
@@ -196,8 +199,6 @@ class MainActivityActivity : Activity() {
         content.addView(createTitleRow(), marginParams(top = 28))
         content.addView(createFilterBar(), marginParams(top = 18))
         val inboxContent = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        inboxContent.addView(createSectionLabel(0), marginParams(top = 26, bottom = 4))
-        inboxContent.addView(createLoadingState(), marginParams(top = 12))
         content.addView(inboxContent)
         scrollView = ScrollView(this).apply {
             isFillViewport = true
@@ -208,33 +209,46 @@ class MainActivityActivity : Activity() {
         setContentView(scrollView)
         if (y > 0) scrollView.post { scrollView.scrollTo(0, y) }
 
+        val inbox = cachedInbox
+        if (inbox != null) {
+            populateInbox(inboxContent, inbox)
+        } else if (checkSelfPermission(Manifest.permission.READ_SMS) != PackageManager.PERMISSION_GRANTED) {
+            inboxContent.addView(createEmptyState(false), marginParams(top = 12))
+        } else {
+            inboxContent.addView(createSectionLabel(0), marginParams(top = 26, bottom = 4))
+            inboxContent.addView(createLoadingState(), marginParams(top = 12))
+            loadInboxIfNeeded()
+        }
+    }
+
+    private fun loadInboxIfNeeded() {
+        if (inboxLoadInFlight) return
+        inboxLoadInFlight = true
         uiScope.launch(Dispatchers.IO) {
-            if (checkSelfPermission(Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED) {
-                val classifiedMessages = SmsHistoryStore(this@MainActivityActivity).load()
-                val allMessages = loadInboxMessages(classifiedMessages)
-                val filtered = allMessages.filter { message ->
-                    when (selectedFilter) {
-                        MessageFilter.ALL -> true
-                        MessageFilter.ADVERTISEMENTS -> message.isAdvertisement == true
-                        MessageFilter.KEEP -> message.isAdvertisement == false
-                    }
-                }
-                withContext(Dispatchers.Main) {
-                    if (isFinishing || isDestroyed || generation != inboxGeneration) return@withContext
-                    inboxContent.removeAllViews()
-                    inboxContent.addView(createSectionLabel(filtered.size), marginParams(top = 26, bottom = 4))
-                    if (filtered.isEmpty()) inboxContent.addView(createEmptyState(allMessages.isNotEmpty()), marginParams(top = 12))
-                    else filtered.forEachIndexed { index, message ->
-                        inboxContent.addView(createMessageCard(message), marginParams(top = if (index == 0) 8 else 12))
-                    }
-                }
-            } else {
-                withContext(Dispatchers.Main) {
-                    if (isFinishing || isDestroyed || generation != inboxGeneration) return@withContext
-                    inboxContent.removeAllViews()
-                    inboxContent.addView(createEmptyState(false), marginParams(top = 12))
-                }
+            val classifiedMessages = SmsHistoryStore(this@MainActivityActivity).load()
+            val inbox = loadInboxMessages(classifiedMessages)
+            withContext(Dispatchers.Main) {
+                inboxLoadInFlight = false
+                if (isFinishing || isDestroyed) return@withContext
+                cachedInbox = inbox
+                renderInbox()
             }
+        }
+    }
+
+    private fun populateInbox(container: LinearLayout, inbox: List<InboxItem>) {
+        val filtered = inbox.filter { message ->
+            when (selectedFilter) {
+                MessageFilter.ALL -> true
+                MessageFilter.ADVERTISEMENTS -> message.isAdvertisement == true
+                MessageFilter.KEEP -> message.isAdvertisement == false
+            }
+        }
+        container.removeAllViews()
+        container.addView(createSectionLabel(filtered.size), marginParams(top = 26, bottom = 4))
+        if (filtered.isEmpty()) container.addView(createEmptyState(inbox.isNotEmpty()), marginParams(top = 12))
+        else filtered.forEachIndexed { index, message ->
+            container.addView(createMessageCard(message), marginParams(top = if (index == 0) 8 else 12))
         }
     }
 
@@ -490,7 +504,7 @@ class MainActivityActivity : Activity() {
     private fun loadInboxMessages(classified: List<StoredSms>): List<InboxItem> {
         val directory = ContactDirectory(this)
         return runCatching {
-            SystemSmsStore(this).loadThreads().map { thread ->
+            SystemSmsStore(this).loadThreads().take(MAX_VISIBLE_THREADS).map { thread ->
                 val incoming = thread.lastIncoming
                 val result = incoming?.let { message ->
                     classified.firstOrNull {
@@ -507,7 +521,7 @@ class MainActivityActivity : Activity() {
                 )
             }
         }.getOrElse {
-            classified.map { message ->
+            classified.take(MAX_VISIBLE_THREADS).map { message ->
                 InboxItem(
                     address = message.sender,
                     title = directory.nameFor(message.sender),
@@ -596,6 +610,7 @@ class MainActivityActivity : Activity() {
         const val REQUEST_DEFAULT_SMS_ROLE = 101
         const val PREFERENCES_NAME = "ui_preferences"
         const val DARK_MODE_KEY = "dark_mode"
+        const val MAX_VISIBLE_THREADS = 120
         const val ASKED_DEFAULT_ROLE = "asked_default_sms_role"
         const val ASKED_EXTRA_PERMISSIONS = "asked_extra_permissions"
         const val STATE_FILTER = "filter"
