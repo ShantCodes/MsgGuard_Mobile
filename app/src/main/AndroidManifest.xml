@@ -7,7 +7,8 @@
     <application
         android:allowBackup="true"
         android:icon="@drawable/app_icon"
-        android:label="MsgGuard">
+        android:label="MsgGuard"
+        android:theme="@style/Theme.MsgGuard">
 
         <receiver
             android:name=".receiver.SmsReceiver"
