@@ -40,48 +40,107 @@ class MainActivityActivity : Activity() {
     }
 
     private fun showHistory() {
-        val padding = dp(20)
+        val padding = dp(24)
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(padding, padding, padding, padding)
-            setBackgroundColor(Color.rgb(248, 250, 252))
+            setBackgroundColor(Color.WHITE)
         }
-        content.addView(textView("MsgGuard", 28, Color.rgb(15, 23, 42), Typeface.BOLD))
-        content.addView(textView("Your classified SMS history stays on this device", 15, Color.rgb(71, 85, 105)))
+
+        // Header Section
+        val headerLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, 0, 0, dp(32))
+        }
+        headerLayout.addView(textView("MsgGuard", 32, Color.BLACK, Typeface.BOLD))
+        headerLayout.addView(textView("Your classified SMS history stays on this device", 14, Color.GRAY))
+        content.addView(headerLayout)
 
         val messages = SmsHistoryStore(this).load()
         if (messages.isEmpty()) {
-            content.addView(textView("No messages classified yet. New SMS messages will appear here after you grant permission.", 16, Color.rgb(71, 85, 105)).apply {
-                setPadding(0, dp(36), 0, 0)
-            })
+            val emptyState = TextView(this).apply {
+                text = "No messages classified yet. New SMS messages will appear here after you grant permission."
+                textSize = 16f
+                setTextColor(Color.GRAY)
+                gravity = Gravity.CENTER
+                setPadding(0, dp(48), 0, 0)
+            }
+            content.addView(emptyState)
         } else {
             messages.forEach { message ->
                 val card = LinearLayout(this).apply {
                     orientation = LinearLayout.VERTICAL
-                    setPadding(dp(16), dp(14), dp(16), dp(14))
-                    setBackgroundColor(Color.WHITE)
+                    setPadding(dp(16), dp(16), dp(16), dp(16))
+                    setBackgroundColor(Color.parseColor("#F3F4F6"))
                 }
+
+                // Header Layout for message (Status + Sender)
+                val messageHeader = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    layoutParams = LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    )
+                }
+
                 val status = when (message.isAdvertisement) {
                     true -> "ADVERTISEMENT"
                     false -> "OTHER"
-                    null -> "CLASSIFICATION FAILED"
+                    null -> "ERROR"
                 }
+
                 val statusColor = when (message.isAdvertisement) {
-                    true -> Color.rgb(185, 28, 28)
-                    false -> Color.rgb(21, 128, 61)
-                    null -> Color.rgb(180, 83, 9)
+                    true -> Color.parseColor("#DC2626") // Red
+                    false -> Color.parseColor("#16A34A") // Green
+                    null -> Color.parseColor("#EA580C") // Orange
                 }
-                card.addView(textView(status, 12, statusColor, Typeface.BOLD))
-                card.addView(textView(message.sender, 16, Color.rgb(15, 23, 42), Typeface.BOLD))
-                card.addView(textView(message.content, 15, Color.rgb(51, 65, 85)))
-                message.classificationError?.let { error ->
-                    card.addView(textView("AI error: $error", 13, Color.rgb(180, 83, 9)))
+
+                // Status Text
+                val statusText = TextView(this).apply {
+                    text = status
+                    textSize = 12f
+                    setTextColor(statusColor)
+                    setTypeface(TypeFace.DEFAULT, TypeFace.BOLD)
+                    setPadding(dp(8), dp(4), dp(8), dp(4))
                 }
-                card.addView(textView(DateFormat.getDateTimeInstance().format(message.receivedAt), 12, Color.rgb(100, 116, 139)))
+
+                val senderText = TextView(this).apply {
+                    text = message.sender
+                    textSize = 16f
+                    setTextColor(Color.BLACK)
+                    setTypeface(TypeFace.DEFAULT, TypeFace.BOLD)
+                    setPadding(dp(8), 0, 0, dp(4))
+                }
+
+                messageHeader.addView(statusText)
+                messageHeader.addView(senderText)
+                card.addView(messageHeader)
+
+                // Content
+                val contentText = TextView(this).apply {
+                    text = message.content
+                    textSize = 15f
+                    setTextColor(Color.parseColor("#374151")) // Dark Gray
+                    setLineSpacing(0f, 1.2f)
+                    setPadding(0, dp(4), 0, dp(12))
+                }
+                card.addView(contentText)
+
+                // Timestamp
+                val timeText = TextView(this).apply {
+                    text = DateFormat.getDateTimeInstance().format(message.receivedAt)
+                    textSize = 12f
+                    setTextColor(Color.GRAY)
+                    setTypeface(TypeFace.DEFAULT, TypeFace.ITALIC)
+                }
+                card.addView(timeText)
+
                 content.addView(card, LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT
-                ).apply { topMargin = dp(12) })
+                ).apply {
+                    setMargins(0, dp(12), 0, 0)
+                })
             }
         }
 
