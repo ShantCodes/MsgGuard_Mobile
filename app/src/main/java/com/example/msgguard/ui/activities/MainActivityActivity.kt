@@ -331,7 +331,7 @@ class MainActivityActivity : Activity() {
         elevation = dp(1).toFloat()
         setOnClickListener { openConversation(message.address) }
         setOnLongClickListener {
-            confirmDeleteThread(message)
+            showManualClassificationDialog(message)
             true
         }
         addView(TextView(this@MainActivityActivity).apply {
@@ -503,6 +503,7 @@ class MainActivityActivity : Activity() {
 
     private fun loadInboxMessages(classified: List<StoredSms>): List<InboxItem> {
         val directory = ContactDirectory(this)
+        val manualLabels = SmsHistoryStore(this).manualClassifications()
         return runCatching {
             SystemSmsStore(this).loadThreads().take(MAX_VISIBLE_THREADS).map { thread ->
                 val incoming = thread.lastIncoming
@@ -516,7 +517,7 @@ class MainActivityActivity : Activity() {
                     title = directory.nameFor(thread.address),
                     preview = thread.preview,
                     receivedAt = thread.date,
-                    isAdvertisement = result?.isAdvertisement,
+                    isAdvertisement = manualLabels[thread.address] ?: result?.isAdvertisement,
                     unread = thread.unreadCount
                 )
             }
@@ -605,7 +606,22 @@ class MainActivityActivity : Activity() {
         val warningContainer = Color.parseColor(if (dark) "#4A3117" else "#FFF0DB")
     }
 
-    private companion object {
+    private fun showManualClassificationDialog(message: InboxItem) {
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Classify Conversation")
+            .setMessage("Select the classification for ${message.title}")
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Advertisement") { _, _ ->
+                SmsHistoryStore(this).setManualClassification(message.address, true)
+                renderInbox()
+            }
+            .setNeutralButton("Safe") { _, _ ->
+                SmsHistoryStore(this).setManualClassification(message.address, false)
+                renderInbox()
+            }
+            .show()
+    }
+
         const val REQUEST_APP_PERMISSIONS = 100
         const val REQUEST_DEFAULT_SMS_ROLE = 101
         const val PREFERENCES_NAME = "ui_preferences"
