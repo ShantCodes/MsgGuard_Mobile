@@ -633,5 +633,4 @@ class MainActivityActivity : Activity() {
         const val STATE_FILTER = "filter"
         const val STATE_SCROLL = "scroll"
     }
-    }
 }
