@@ -7,6 +7,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import android.view.ViewTreeObserver
 
 import android.app.Activity
 import android.content.BroadcastReceiver
@@ -48,6 +49,27 @@ import com.google.android.material.materialswitch.MaterialSwitch
 import java.text.DateFormat
 import java.util.Calendar
 
+private val mainHandler = Handler(Looper.getMainLooper())
+
+private val uiScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
+private var watching = false
+private var inboxLoadInFlight = false
+
+private var currentPage = 0
+private val pageSize = 30
+
+private var cachedInbox: List<InboxItem>? = null
+
+private val refreshRunnable = Runnable {
+    cachedInbox = null
+    currentPage = 0
+    hasMoreInbox = true
+    loadInboxIfNeeded()
+}
+
+private var hasMoreInbox = true
+
 /** A private inbox for SMS messages that have been checked on this device. */
 class MainActivityActivity : Activity() {
     private var selectedFilter = MessageFilter.ALL
@@ -56,10 +78,14 @@ class MainActivityActivity : Activity() {
     private var scrollY = 0
     private var resetScroll = false
     private val scrollObserver = ViewTreeObserver.OnScrollChangedListener {
-        if (scrollView.scrollY + scrollView.height >= scrollView.maxScrollExtent - 500) {
-            loadInboxIfNeeded()
-        }
+    if (
+        ::scrollView.isInitialized &&
+        scrollView.scrollY + scrollView.height >=
+        scrollView.getChildAt(0).height - dp(500)
+    ) {
+        loadInboxIfNeeded()
     }
+}
 
     private val smsObserver = object : ContentObserver(mainHandler) {
         override fun onChange(selfChange: Boolean) = scheduleRefresh()
@@ -222,7 +248,7 @@ class MainActivityActivity : Activity() {
     }
 
     private fun loadInboxIfNeeded() {
-        if (inboxLoadInFlight) return
+        if (inboxLoadInFlight || !hasMoreInbox) return
         inboxLoadInFlight = true
         uiScope.launch(Dispatchers.IO) {
             val classifiedMessages = SmsHistoryStore(this@MainActivityActivity).load()
@@ -230,10 +256,17 @@ class MainActivityActivity : Activity() {
             withContext(Dispatchers.Main) {
                 inboxLoadInFlight = false
                 if (isFinishing || isDestroyed) return@withContext
+
                 val currentList = cachedInbox ?: emptyList()
+
+                hasMoreInbox = newItems.size == pageSize
+
                 if (newItems.isNotEmpty()) {
                     cachedInbox = currentList + newItems
                     currentPage++
+                    renderInbox()
+                } else if (cachedInbox == null) {
+                    cachedInbox = emptyList()
                     renderInbox()
                 }
             }
