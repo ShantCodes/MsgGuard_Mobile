@@ -622,6 +622,7 @@ class MainActivityActivity : Activity() {
             .show()
     }
 
+    private companion object {
         const val REQUEST_APP_PERMISSIONS = 100
         const val REQUEST_DEFAULT_SMS_ROLE = 101
         const val PREFERENCES_NAME = "ui_preferences"
@@ -631,5 +632,6 @@ class MainActivityActivity : Activity() {
         const val ASKED_EXTRA_PERMISSIONS = "asked_extra_permissions"
         const val STATE_FILTER = "filter"
         const val STATE_SCROLL = "scroll"
+    }
     }
 }
