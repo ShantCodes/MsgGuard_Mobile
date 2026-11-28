@@ -250,7 +250,8 @@ class SystemSmsStore(private val context: Context) {
         const val DUPLICATE_WINDOW_MS = 2_000L
         /** Bounded reads prevent a large device-wide SMS archive from blocking the UI. */
         const val MAX_THREAD_SCAN = 800
-        const val MAX_CONVERSATION_MESSAGES = 500
+        const val MAX_CONVERSATION_MESSAGES = 20
+
         val PROJECTION = arrayOf(
             Telephony.Sms._ID,
             Telephony.Sms.THREAD_ID,

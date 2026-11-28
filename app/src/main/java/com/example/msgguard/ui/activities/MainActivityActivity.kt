@@ -627,7 +627,8 @@ class MainActivityActivity : Activity() {
         const val REQUEST_DEFAULT_SMS_ROLE = 101
         const val PREFERENCES_NAME = "ui_preferences"
         const val DARK_MODE_KEY = "dark_mode"
-        const val MAX_VISIBLE_THREADS = 120
+        const val MAX_VISIBLE_THREADS = 30
+
         const val ASKED_DEFAULT_ROLE = "asked_default_sms_role"
         const val ASKED_EXTRA_PERMISSIONS = "asked_extra_permissions"
         const val STATE_FILTER = "filter"
