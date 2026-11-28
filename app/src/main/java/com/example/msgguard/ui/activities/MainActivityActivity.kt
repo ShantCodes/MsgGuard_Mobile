@@ -49,29 +49,29 @@ import com.google.android.material.materialswitch.MaterialSwitch
 import java.text.DateFormat
 import java.util.Calendar
 
-private val mainHandler = Handler(Looper.getMainLooper())
-
-private val uiScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-
-private var watching = false
-private var inboxLoadInFlight = false
-
-private var currentPage = 0
-private val pageSize = 30
-
-private var cachedInbox: List<InboxItem>? = null
-
-private val refreshRunnable = Runnable {
-    cachedInbox = null
-    currentPage = 0
-    hasMoreInbox = true
-    loadInboxIfNeeded()
-}
-
-private var hasMoreInbox = true
-
 /** A private inbox for SMS messages that have been checked on this device. */
 class MainActivityActivity : Activity() {
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    private val uiScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
+    private var watching = false
+    private var inboxLoadInFlight = false
+
+    private var currentPage = 0
+    private val pageSize = 30
+    private var hasMoreInbox = true
+
+    private var cachedInbox: List<InboxItem>? = null
+
+    private val refreshRunnable = Runnable {
+        cachedInbox = null
+        currentPage = 0
+        hasMoreInbox = true
+        loadInboxIfNeeded()
+    }
+
+private var hasMoreInbox = true
     private var selectedFilter = MessageFilter.ALL
     private lateinit var palette: Palette
     private lateinit var scrollView: ScrollView
