@@ -55,21 +55,19 @@ class MainActivityActivity : Activity() {
     private lateinit var scrollView: ScrollView
     private var scrollY = 0
     private var resetScroll = false
-    private var watching = false
-    private val uiScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private var cachedInbox: List<InboxItem>? = null
-    private var inboxLoadInFlight = false
-    private val mainHandler = Handler(Looper.getMainLooper())
-    private val refreshRunnable = Runnable {
-        cachedInbox = null
-        renderInbox()
+    private val scrollObserver = ViewTreeObserver.OnScrollChangedListener {
+        if (scrollView.scrollY + scrollView.height >= scrollView.maxScrollExtent - 500) {
+            loadInboxIfNeeded()
+        }
     }
+
     private val smsObserver = object : ContentObserver(mainHandler) {
         override fun onChange(selfChange: Boolean) = scheduleRefresh()
     }
     private val inboxReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) = scheduleRefresh()
     }
+
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -205,9 +203,11 @@ class MainActivityActivity : Activity() {
             setBackgroundColor(palette.background)
             addView(content, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
+        scrollView.viewTreeObserver.addOnScrollChangedListener(scrollObserver)
         scrollY = y
         setContentView(scrollView)
         if (y > 0) scrollView.post { scrollView.scrollTo(0, y) }
+
 
         val inbox = cachedInbox
         if (inbox != null) {
@@ -226,15 +226,20 @@ class MainActivityActivity : Activity() {
         inboxLoadInFlight = true
         uiScope.launch(Dispatchers.IO) {
             val classifiedMessages = SmsHistoryStore(this@MainActivityActivity).load()
-            val inbox = loadInboxMessages(classifiedMessages)
+            val newItems = loadInboxMessages(classifiedMessages, currentPage, pageSize)
             withContext(Dispatchers.Main) {
                 inboxLoadInFlight = false
                 if (isFinishing || isDestroyed) return@withContext
-                cachedInbox = inbox
-                renderInbox()
+                val currentList = cachedInbox ?: emptyList()
+                if (newItems.isNotEmpty()) {
+                    cachedInbox = currentList + newItems
+                    currentPage++
+                    renderInbox()
+                }
             }
         }
     }
+
 
     private fun populateInbox(container: LinearLayout, inbox: List<InboxItem>) {
         val filtered = inbox.filter { message ->
@@ -501,37 +506,32 @@ class MainActivityActivity : Activity() {
             .putExtra(SmsAddresses.EXTRA_BODY, body)
     )
 
-    private fun loadInboxMessages(classified: List<StoredSms>): List<InboxItem> {
+    private fun loadInboxMessages(classified: List<StoredSms>, page: Int, pageSize: Int): List<InboxItem> {
         val directory = ContactDirectory(this)
         val manualLabels = SmsHistoryStore(this).manualClassifications()
         return runCatching {
-            SystemSmsStore(this).loadThreads().take(MAX_VISIBLE_THREADS).map { thread ->
-                val incoming = thread.lastIncoming
-                val result = incoming?.let { message ->
-                    classified.firstOrNull {
-                        it.content.trim() == message.body.trim() && SmsAddresses.same(this, it.sender, message.address)
+            SystemSmsStore(this).loadThreads()
+                .sortedByDescending { it.date }
+                .drop(page * pageSize)
+                .take(pageSize)
+                .map { thread ->
+                    val incoming = thread.lastIncoming
+                    val result = incoming?.let { message ->
+                        classified.firstOrNull {
+                            it.content.trim() == message.body.trim() && SmsAddresses.same(this, it.sender, message.address)
+                        }
                     }
+                    InboxItem(
+                        address = thread.address,
+                        title = directory.nameFor(thread.address),
+                        preview = thread.preview,
+                        receivedAt = thread.date,
+                        isAdvertisement = manualLabels[thread.address] ?: result?.isAdvertisement,
+                        unread = thread.unreadCount
+                    )
                 }
-                InboxItem(
-                    address = thread.address,
-                    title = directory.nameFor(thread.address),
-                    preview = thread.preview,
-                    receivedAt = thread.date,
-                    isAdvertisement = manualLabels[thread.address] ?: result?.isAdvertisement,
-                    unread = thread.unreadCount
-                )
-            }
         }.getOrElse {
-            classified.take(MAX_VISIBLE_THREADS).map { message ->
-                InboxItem(
-                    address = message.sender,
-                    title = directory.nameFor(message.sender),
-                    preview = message.content,
-                    receivedAt = message.receivedAt,
-                    isAdvertisement = message.isAdvertisement,
-                    unread = 0
-                )
-            }
+            emptyList()
         }
     }
 
