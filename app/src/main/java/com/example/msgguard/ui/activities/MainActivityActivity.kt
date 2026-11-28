@@ -71,7 +71,6 @@ class MainActivityActivity : Activity() {
         loadInboxIfNeeded()
     }
 
-private var hasMoreInbox = true
     private var selectedFilter = MessageFilter.ALL
     private lateinit var palette: Palette
     private lateinit var scrollView: ScrollView
